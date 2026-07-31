@@ -21,10 +21,10 @@
 
 
 <br><br> 
-##**Technology Stack:-**
+## **Technology Stack:-**
 <br><br>
-RL engine
-Database 
-Web hosting service
-OTT service
-Data Pipeline
+1. RL engine
+2. Database 
+3. Web hosting service
+4. OTT service
+5. Data Pipeline
