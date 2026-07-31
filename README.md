@@ -7,8 +7,8 @@
     2.Balaprasad Gutte - 24BIT0329
     3.Lakshay Mehta - 24BIT0495    
 
-## **Problem statement:-**<br><br>
-    Due to heavy traffic and hardware issues in a region, users for an OTT service hosted on a cloud might face large loading times <br> of even a failure in their data being loaded 
+## **Problem statement:-**<br><br> 
+Due to heavy traffic and hardware issues in a region, users for an OTT service hosted on a cloud might face large loading times <br> of even a failure in their data being loaded 
 <br><br>
 ##  **Objectives:-**  
 <br><br>
