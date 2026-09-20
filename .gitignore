@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+*.pyc
+data/5G_dataset/
+data/twitch_dataset/
+results/*.zip
