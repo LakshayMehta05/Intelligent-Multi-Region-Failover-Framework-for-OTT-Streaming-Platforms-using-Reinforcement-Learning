@@ -10,11 +10,17 @@ Real KPIs used per row:
     PINGAVG     (ms)   -> normalized into latency
     PINGLOSS    (%)    -> used directly as error_rate proxy
 
-Note: PINGAVG/PINGLOSS are often unrecorded (all '-') in many sessions
-of this dataset. Where ping data is missing, we derive latency/error
-signals from DL_bitrate dynamics instead (low real bitrate genuinely
-correlates with degraded network conditions), documented here as a
-deliberate modeling choice given the real dataset's sparsity.
+Notes on real-data quirks handled here:
+1. PINGAVG/PINGLOSS are often unrecorded (all '-') in many sessions of
+   this dataset. Where ping data is missing, we derive latency/error
+   signals from DL_bitrate dynamics instead.
+2. Raw per-second DL_bitrate is frequently 0 even during smooth playback,
+   because streaming apps download in bursts then idle while the local
+   buffer plays out. We apply a rolling average (30s window) to recover
+   actual sustained throughput before normalizing.
+3. Normalization uses each trace's own 10th/90th percentile range, so
+   heterogeneous real sessions (which vary widely in absolute throughput)
+   are all mapped onto a comparable, robust 0-1 scale.
 """
 
 import pandas as pd
@@ -22,20 +28,21 @@ import numpy as np
 import os
 
 
-def load_trace(csv_path: str, max_rows: int = 2000, skip_start: int = 200) -> dict:
-    """Load one real trace CSV and return normalized metric arrays.
-
-    skip_start: number of initial rows to skip, to bypass the connection
-    startup transient (low bitrate before streaming ramps up) common to
-    this dataset's session recordings.
-    """
+def load_trace(csv_path: str, max_rows: int = 2000, skip_start: int = 200, smooth_window: int = 30) -> dict:
+    """Load one real trace CSV and return normalized metric arrays."""
     df = pd.read_csv(csv_path, skiprows=range(1, skip_start + 1), nrows=max_rows)
 
-    dl_bitrate = pd.to_numeric(df["DL_bitrate"], errors="coerce").fillna(0.0)
+    dl_bitrate_raw = pd.to_numeric(df["DL_bitrate"], errors="coerce").fillna(0.0)
+    dl_bitrate = dl_bitrate_raw.rolling(window=smooth_window, min_periods=1).mean()
+
     ping_avg = pd.to_numeric(df["PINGAVG"].replace("-", np.nan), errors="coerce")
     ping_loss = pd.to_numeric(df["PINGLOSS"].replace("-", np.nan), errors="coerce")
 
-    stall_norm = (1.0 - (dl_bitrate / 5000.0)).clip(0.0, 1.0).to_numpy()
+    p10, p90 = dl_bitrate.quantile(0.1), dl_bitrate.quantile(0.9)
+    if p90 - p10 < 1e-6:
+        stall_norm = np.full(len(df), 0.3)
+    else:
+        stall_norm = (1.0 - (dl_bitrate - p10) / (p90 - p10)).clip(0.0, 1.0).to_numpy()
 
     if ping_avg.notna().sum() > len(df) * 0.5:
         latency_norm = (ping_avg / 300.0).clip(0.0, 1.0).fillna(0.2).to_numpy()
