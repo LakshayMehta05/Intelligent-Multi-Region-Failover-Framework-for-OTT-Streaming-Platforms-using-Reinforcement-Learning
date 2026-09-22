@@ -2,7 +2,8 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np
-from stable_baselines3 import DQN
+from stable_baselines3 import DQN, PPO
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from env.failover_env import StreamFailoverEnv
 from baselines.threshold_policy import ThresholdFailoverPolicy
 
@@ -47,13 +48,35 @@ def run_episode_dqn(seed, model):
             break
     return total_reward, n_switches, n_degraded
 
+def run_episode_ppo(seed, model, vecnorm):
+    env = make_env(seed)
+    obs, info = env.reset(seed=seed)
+    total_reward, n_switches, n_degraded = 0, 0, 0
+    for _ in range(200):
+        norm_obs = vecnorm.normalize_obs(obs)
+        action, _ = model.predict(norm_obs, deterministic=True)
+        obs, reward, term, trunc, info = env.step(int(action))
+        total_reward += reward
+        n_switches += info['switched']
+        n_degraded += info['degraded'][info['active_region']]
+        if trunc or term:
+            break
+    return total_reward, n_switches, n_degraded
+
 if __name__ == "__main__":
     SEEDS = list(range(1000, 1010))
-    model = DQN.load("results/dqn_realdata_model/best_model.zip")
+
+    dqn_model = DQN.load("results/dqn_realdata_model/best_model.zip")
+    ppo_model = PPO.load("results/ppo_realdata_model/best_model.zip")
+
+    dummy_env = DummyVecEnv([lambda: StreamFailoverEnv(n_regions=4, episode_length=200, seed=0)])
+    vecnorm = VecNormalize.load("results/ppo_realdata_model/vecnormalize.pkl", dummy_env)
+    vecnorm.training = False
 
     for name, fn in [
         ("Threshold Baseline (real data)", lambda s: run_episode_threshold(s)),
-        ("DQN (real data)", lambda s: run_episode_dqn(s, model)),
+        ("DQN (real data)", lambda s: run_episode_dqn(s, dqn_model)),
+        ("PPO (real data)", lambda s: run_episode_ppo(s, ppo_model, vecnorm)),
     ]:
         rewards, switches, degraded = zip(*[fn(s) for s in SEEDS])
         print(f"\n=== {name} ===")
