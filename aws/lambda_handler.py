@@ -1,11 +1,17 @@
 """
 AWS Lambda handler for real-time failover routing decisions.
-Uses the REAL trained DQN model via pure NumPy inference (no PyTorch
-dependency, fits well within Lambda's deployment size limits).
+Uses the REAL trained DQN model via pure-Python inference (no dependencies).
+Logs every decision to S3 for permanent, auditable record-keeping.
 """
 
 import json
+import os
+import boto3
+from datetime import datetime, timezone
 from pure_python_inference import forward, build_observation, REGION_NAMES
+
+S3_BUCKET = "streamfailover-decision-logs-aakash"
+s3_client = boto3.client("s3")
 
 
 def lambda_handler(event, context=None):
@@ -35,6 +41,21 @@ def lambda_handler(event, context=None):
             f"(Q-value={q_values[action]:.2f}, highest among all {n} regions)"
         ),
     }
+
+    # Log this decision to S3 for a permanent audit trail
+    try:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        log_entry = {"timestamp": timestamp, "input": body, "decision": response}
+        key = f"decisions/{timestamp.replace(':', '-')}.json"
+        s3_client.put_object(
+            Bucket=S3_BUCKET,
+            Key=key,
+            Body=json.dumps(log_entry),
+            ContentType="application/json",
+        )
+    except Exception as e:
+        # Don't fail the whole request if logging fails - log the error but still return the decision
+        print(f"S3 logging failed: {e}")
 
     return {
         "statusCode": 200,
