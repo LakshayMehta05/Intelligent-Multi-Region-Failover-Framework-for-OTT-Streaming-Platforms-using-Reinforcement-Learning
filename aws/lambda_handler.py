@@ -5,7 +5,7 @@ dependency, fits well within Lambda's deployment size limits).
 """
 
 import json
-from numpy_inference import forward, build_observation, REGION_NAMES
+from pure_python_inference import forward, build_observation, REGION_NAMES
 
 
 def lambda_handler(event, context=None):
@@ -19,7 +19,7 @@ def lambda_handler(event, context=None):
 
     obs = build_observation(regions, active_region_index, steps_since_switch)
     q_values = forward(obs)
-    action = int(q_values.argmax())
+    action = q_values.index(max(q_values))
     switched = action != active_region_index
 
     n = len(regions)

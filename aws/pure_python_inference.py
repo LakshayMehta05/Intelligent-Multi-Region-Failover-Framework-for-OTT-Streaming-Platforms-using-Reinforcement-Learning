@@ -1,14 +1,9 @@
 """
-Pure NumPy forward pass through the trained DQN's Q-network.
-Loads the exported real trained weights (no PyTorch/stable-baselines3
-dependency needed) - suitable for AWS Lambda's size constraints.
-
-Network architecture (matches Stable-Baselines3's default MlpPolicy):
-    Linear(obs_dim, 64) -> ReLU -> Linear(64, 64) -> ReLU -> Linear(64, n_actions)
+Pure Python (no NumPy) forward pass through the trained DQN's Q-network.
+Avoids all Lambda packaging issues - stdlib only.
 """
 
 import json
-import numpy as np
 import os
 
 REGION_NAMES = ["us-east-1", "us-west-2", "eu-west-1", "ap-south-1"]
@@ -21,29 +16,35 @@ def _load_weights():
     if _weights is None:
         weights_path = os.path.join(os.path.dirname(__file__), "model_weights.json")
         with open(weights_path) as f:
-            raw = json.load(f)
-        _weights = {k: np.array(v) for k, v in raw.items()}
+            _weights = json.load(f)
     return _weights
 
 
-def relu(x):
-    return np.maximum(0, x)
+def _matvec(matrix, vector, bias):
+    """y = matrix @ vector + bias, where matrix is list-of-lists (out_dim x in_dim)."""
+    out = []
+    for row, b in zip(matrix, bias):
+        s = sum(row[i] * vector[i] for i in range(len(vector))) + b
+        out.append(s)
+    return out
 
 
-def forward(obs: np.ndarray) -> np.ndarray:
-    """Run the real trained Q-network forward pass using exported weights."""
+def _relu(vec):
+    return [max(0.0, v) for v in vec]
+
+
+def forward(obs: list) -> list:
     w = _load_weights()
 
-    x = obs
-    x = x @ w["q_net.0.weight"].T + w["q_net.0.bias"]
-    x = relu(x)
-    x = x @ w["q_net.2.weight"].T + w["q_net.2.bias"]
-    x = relu(x)
-    x = x @ w["q_net.4.weight"].T + w["q_net.4.bias"]
-    return x  # raw Q-values, one per action/region
+    x = _matvec(w["q_net.0.weight"], obs, w["q_net.0.bias"])
+    x = _relu(x)
+    x = _matvec(w["q_net.2.weight"], x, w["q_net.2.bias"])
+    x = _relu(x)
+    x = _matvec(w["q_net.4.weight"], x, w["q_net.4.bias"])
+    return x
 
 
-def build_observation(regions: list, active_region_index: int, steps_since_switch: int, episode_length: int = 200) -> np.ndarray:
+def build_observation(regions: list, active_region_index: int, steps_since_switch: int, episode_length: int = 200) -> list:
     n = len(regions)
     metrics = []
     for r in regions:
@@ -54,7 +55,7 @@ def build_observation(regions: list, active_region_index: int, steps_since_switc
 
     time_feat = [min(steps_since_switch / episode_length, 1.0)]
 
-    return np.array(metrics + active_onehot + time_feat, dtype=np.float32)
+    return metrics + active_onehot + time_feat
 
 
 if __name__ == "__main__":
@@ -66,7 +67,7 @@ if __name__ == "__main__":
     ]
     obs = build_observation(test_regions, active_region_index=0, steps_since_switch=20)
     q_values = forward(obs)
-    action = int(np.argmax(q_values))
+    action = q_values.index(max(q_values))
 
-    print("Q-values:", dict(zip(REGION_NAMES, q_values.round(2))))
+    print("Q-values:", dict(zip(REGION_NAMES, [round(q, 2) for q in q_values])))
     print(f"Chosen action: {REGION_NAMES[action]}")
