@@ -56,6 +56,15 @@ class StreamFailoverEnv(gym.Env):
         self.region_traces = load_region_traces(trace_paths)
         self._trace_idx = 0
 
+    def load_codeco_traces(self, csv_path: str = "data/codeco_media.csv"):
+        """Load real CODECO HTTP streaming traces, split by real server node (one per region)."""
+        from data.codeco_loader import load_codeco_regions
+        traces, hostnames = load_codeco_regions(csv_path)
+        assert len(traces) == self.n_regions, f"Expected {self.n_regions} regions, got {len(traces)} CODECO nodes"
+        self.region_traces = traces
+        self.region_names_override = hostnames
+        self._trace_idx = 0
+
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         if seed is not None:
             self._rng = np.random.default_rng(seed)
