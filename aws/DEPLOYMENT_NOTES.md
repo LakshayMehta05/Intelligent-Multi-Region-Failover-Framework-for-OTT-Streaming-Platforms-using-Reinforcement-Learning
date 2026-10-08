@@ -35,7 +35,7 @@ The trained DQN failover model is deployed as a working AWS Lambda function with
 ### Known limitations / honest scope notes
 - Route 53 ARC and multi-region active deployment were not implemented (would incur ongoing cost beyond free tier); the Lambda inference pattern demonstrates the same decision-making capability that would plug into such a system
 - Single Lambda instance, not deployed across multiple AWS regions (would require replication for true multi-region failover infrastructure)
-- IAM permissions were broadened (AmazonS3FullAccess) for development speed; a production system would scope this to the specific bucket only
+- IAM permissions properly scoped: Lambda's execution role now has only `s3:PutObject` permission restricted to the specific `streamfailover-decision-logs-aakash` bucket, following least-privilege principles (verified working after removing the earlier broad `AmazonS3FullAccess` grant).
 
 ### Test command
 ```powershell
