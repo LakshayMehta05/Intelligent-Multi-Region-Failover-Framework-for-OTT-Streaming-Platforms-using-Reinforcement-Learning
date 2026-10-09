@@ -9,6 +9,8 @@ import os
 import boto3
 from datetime import datetime, timezone
 from pure_python_inference import forward, build_observation, REGION_NAMES
+SNS_TOPIC_ARN = "arn:aws:sns:ap-southeast-2:276429521150:streamfailover-alerts"
+sns_client = boto3.client("sns")
 
 S3_BUCKET = "streamfailover-decision-logs-aakash"
 s3_client = boto3.client("s3")
@@ -92,6 +94,20 @@ def lambda_handler(event, context=None):
             f"(Q-value={q_values[action]:.2f}, highest among all {n} regions)"
         ),
     }
+    if switched:
+        try:
+            sns_client.publish(
+                TopicArn=SNS_TOPIC_ARN,
+                Subject="StreamFailOverAI: Region Switch Triggered",
+                Message=(
+                    f"Failover decision: switch from region index {active_region_index} "
+                    f"to {response['action_region_name']}.\n"
+                    f"Q-values: {response['q_values']}\n"
+                    f"Reason: {response['explanation']}"
+                ),
+            )
+        except Exception as e:
+            print(f"SNS publish failed: {e}")
 
     try:
         timestamp = datetime.now(timezone.utc).isoformat()

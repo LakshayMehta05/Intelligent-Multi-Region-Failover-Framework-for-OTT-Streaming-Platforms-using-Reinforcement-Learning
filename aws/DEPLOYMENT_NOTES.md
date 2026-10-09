@@ -52,3 +52,17 @@ $body = @{
 
 Invoke-RestMethod -Uri "https://0r30ov6qrd.execute-api.ap-southeast-2.amazonaws.com/default/streamfailover-inference" -Method Post -Body $body -ContentType "application/json"
 ```
+## Current Deployment Status (Updated)
+
+**Architecture (live):** API Gateway (HTTP API) → Lambda (`streamfailover-inference-mumbai`, ap-southeast-2) → S3 (decision audit logs) + CloudWatch (metrics/logs)
+
+**Model:** Real trained DQN (Stable-Baselines3, trained on real UCC 5G + CODECO traces). Weights exported to `aws/model_weights.json` and run via a dependency-free pure-Python forward pass (`aws/pure_python_inference.py`) — this was required because PyTorch/Stable-Baselines3 exceed Lambda's 250MB unzipped package limit.
+
+**Security:**
+- IAM scoped to least-privilege: a custom inline policy (`streamfailover-s3-write-only`) replacing the earlier broad `AmazonS3FullAccess`, granting only `s3:PutObject` on the specific log bucket.
+- Input validation (`validate_input()` in `lambda_handler.py`) rejects malformed, missing, out-of-range, or type-mismatched fields with HTTP 400 before any inference runs. Verified live against a simulated attack payload (out-of-range values) — correctly rejected with status 400.
+
+**Known limitations (honest, by design):**
+1. **Single-region only.** The original proposal describes multi-region AWS failover infrastructure. This AWS account is restricted to its sign-up region (ap-southeast-2) until "Activate advanced features" is enabled at the account level. This was a deliberate choice to avoid any risk to account credits/free-tier status — not a technical blocker, a safety decision.
+2. **Services used vs. proposed:** Implemented with Lambda + API Gateway + S3 + CloudWatch + IAM. DynamoDB Global Tables, SNS/EventBridge, and ECS/Fargate from the original proposal's architecture are not implemented — the current services were sufficient to demonstrate real-time inference, logging, and monitoring end-to-end.
+3. **Multi-agent coordination** is a simplified 2-agent decentralized-execution approximation, not a full CTDE (Centralized Training, Decentralized Execution) architecture.
