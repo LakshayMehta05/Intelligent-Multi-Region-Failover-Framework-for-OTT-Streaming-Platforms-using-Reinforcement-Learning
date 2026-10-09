@@ -66,3 +66,25 @@ Invoke-RestMethod -Uri "https://0r30ov6qrd.execute-api.ap-southeast-2.amazonaws.
 1. **Single-region only.** The original proposal describes multi-region AWS failover infrastructure. This AWS account is restricted to its sign-up region (ap-southeast-2) until "Activate advanced features" is enabled at the account level. This was a deliberate choice to avoid any risk to account credits/free-tier status — not a technical blocker, a safety decision.
 2. **Services used vs. proposed:** Implemented with Lambda + API Gateway + S3 + CloudWatch + IAM. DynamoDB Global Tables, SNS/EventBridge, and ECS/Fargate from the original proposal's architecture are not implemented — the current services were sufficient to demonstrate real-time inference, logging, and monitoring end-to-end.
 3. **Multi-agent coordination** is a simplified 2-agent decentralized-execution approximation, not a full CTDE (Centralized Training, Decentralized Execution) architecture.
+
+## Current Deployment Status (Updated)
+
+**Architecture (live):**
+API Gateway (HTTP API) → Lambda (`streamfailover-inference`, ap-southeast-2)
+→ S3 (decision audit logs) + CloudWatch (metrics/logs) + SNS (real-time failover alerts) + DynamoDB (state-transition records)
+
+**Model:** Real trained DQN (Stable-Baselines3, trained on real UCC 5G + CODECO traces). Weights exported to `aws/model_weights.json` and run via a dependency-free pure-Python forward pass (`aws/pure_python_inference.py`) — required because PyTorch/Stable-Baselines3 exceed Lambda's 250MB unzipped package limit.
+
+**Alerting:** Every failover switch decision publishes a message to an SNS topic (`streamfailover-alerts`), triggering a real-time email notification with the routing decision and Q-value reasoning. Verified live.
+
+**State tracking:** Every failover switch decision is also written as a structured record to a DynamoDB table (`streamfailover-state-transitions`) — `transition_id`, `timestamp`, `from_region`, `to_region`, `q_value`. Verified live via console scan (item write confirmed).
+
+**Security:**
+- IAM scoped to least-privilege: separate inline policies for S3 (`streamfailover-s3-write-only`), SNS (`streamfailover-sns-publish`), and DynamoDB (`streamfailover-dynamodb-write`) — each grants only the single specific action needed (`PutObject`, `Publish`, `PutItem`) on the single specific resource, replacing any broader default permissions.
+- Input validation (`validate_input()` in `lambda_handler.py`) rejects malformed, missing, out-of-range, or type-mismatched fields with HTTP 400 before any inference runs. Verified live against a simulated attack payload (out-of-range values) — correctly rejected with status 400.
+
+**Known limitations (honest, by design):**
+1. **Single-region only.** The original proposal describes multi-region AWS failover infrastructure. This AWS account is restricted to its sign-up region (ap-southeast-2) until "Activate advanced features" is enabled at the account level. This was a deliberate choice to avoid any risk to account credits/free-tier status — not a technical blocker, a safety decision. DynamoDB was still implemented (for state-transition logging) since it has genuine value even single-region; true cross-region Global Tables would only make sense once multi-region exists.
+2. **ECS/Fargate not implemented.** Unlike EC2, AWS Fargate has no free tier — billing starts immediately per vCPU/memory-second, and common supporting infrastructure (Application Load Balancer, NAT Gateway) carries real recurring cost even at low usage. Given the project's zero-spend constraint, serverless Lambda was used instead, which fulfills the same compute role (event-driven inference) without this cost risk.
+3. **No API authentication.** The public endpoint has input validation (rejects malformed/malicious payloads) but no API key or IAM-based auth — anyone with the URL can call it. A production deployment would add this.
+4. **Multi-agent coordination** is a simplified 2-agent CTDE (Centralized Training, Decentralized Execution) implementation using QMIX — a centralized mixing network combines both agents' Q-values during training (using global state), while each agent acts from its own local observation only at execution time. This is a genuine CTDE architecture, but uses 2 agents (one per region-pair) rather than a full N-agent system with one agent per region. Training converges (epsilon decay, loss behavior all correct) but the reward curve has not yet fully stabilized — documented as an honest finding, not a bug.
