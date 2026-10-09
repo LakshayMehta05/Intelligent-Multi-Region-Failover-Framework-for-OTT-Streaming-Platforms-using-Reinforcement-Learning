@@ -8,6 +8,8 @@ import json
 import os
 import boto3
 from datetime import datetime, timezone
+DYNAMODB_TABLE = "streamfailover-state-transitions"
+dynamodb_client = boto3.client("dynamodb")
 from pure_python_inference import forward, build_observation, REGION_NAMES
 SNS_TOPIC_ARN = "arn:aws:sns:ap-southeast-2:276429521150:streamfailover-alerts"
 sns_client = boto3.client("sns")
@@ -108,6 +110,25 @@ def lambda_handler(event, context=None):
             )
         except Exception as e:
             print(f"SNS publish failed: {e}")
+
+        except Exception as e:
+            print(f"SNS publish failed: {e}")
+
+    if switched:
+        try:
+                import uuid
+                dynamodb_client.put_item(
+                    TableName=DYNAMODB_TABLE,
+                Item={
+                    "transition_id": {"S": str(uuid.uuid4())},
+                    "timestamp": {"S": datetime.now(timezone.utc).isoformat()},
+                    "from_region": {"S": REGION_NAMES[active_region_index]},
+                    "to_region": {"S": response["action_region_name"]},
+                    "q_value": {"N": str(round(q_values[action], 4))},
+                },
+            )
+        except Exception as e:
+            print(f"DynamoDB write failed: {e}")
 
     try:
         timestamp = datetime.now(timezone.utc).isoformat()
